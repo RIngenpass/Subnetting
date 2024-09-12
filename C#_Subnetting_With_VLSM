@@ -1,0 +1,307 @@
+using System;
+using System.Net;
+using System.Linq;
+
+class Program
+{
+    static void Main()
+    {
+        while (true)
+        {
+             
+            Console.Write("Geben Sie die IP-Adresse ein (oder 'exit' zum Beenden): ");
+            string ipInput = Console.ReadLine();
+            if (ipInput.ToLower() == "exit")
+                break;
+
+            Console.Write("Geben Sie die Subnetzmaske oder das Präfix ein (z.B. 255.255.255.0 oder /24): ");
+            string subnetMaskOrPrefixInput = Console.ReadLine();
+
+            try
+            {
+                IPAddress ipAddress = IPAddress.Parse(ipInput);
+                int prefixLength = GetPrefixLength(subnetMaskOrPrefixInput);
+                IPAddress subnetMask = ParseSubnetMask(subnetMaskOrPrefixInput);
+
+                
+                Console.Write("Möchten Sie VLSM verwenden? (y/n): ");
+                string useVLSM = Console.ReadLine().ToLower();
+
+                if (useVLSM == "y")
+                {
+                    Console.Write("Wie viele Subnetze möchten Sie erstellen? ");
+                    int subnetCount = int.Parse(Console.ReadLine());
+
+                    int[] hostsPerSubnet = new int[subnetCount];
+                    for (int i = 0; i < subnetCount; i++)
+                    {
+                        Console.Write($"Geben Sie die Anzahl der Hosts für Subnetz {i + 1} ein: ");
+                        hostsPerSubnet[i] = int.Parse(Console.ReadLine());
+                    }
+
+                    Array.Sort(hostsPerSubnet, (a, b) => b.CompareTo(a)); 
+                    CalculateVLSM(ipAddress, prefixLength, hostsPerSubnet);
+                }
+                else
+                {
+                    
+                    IPAddress networkAddress = GetNetworkAddress(ipAddress, subnetMask);
+                    IPAddress broadcastAddress = GetBroadcastAddress(ipAddress, subnetMask);
+
+                    IPAddress firstHost = GetFirstHost(networkAddress);
+                    IPAddress lastHost = GetLastHost(broadcastAddress);
+
+                    int totalHosts = GetTotalHosts(prefixLength);
+                    int numberOfSubnets = GetNumberOfSubnets(prefixLength);
+
+                    
+                    DisplayAddressDetails(ipAddress, subnetMask, networkAddress, broadcastAddress, firstHost, lastHost, prefixLength, totalHosts, numberOfSubnets);
+                }
+
+                
+                DisplayEnding(ipAddress, subnetMask);
+                Console.WriteLine(); 
+            }
+            catch (FormatException)
+            {
+                Console.WriteLine("Ungültige IP-Adresse, Subnetzmaske oder Präfix. Bitte versuchen Sie es erneut.");
+            }
+        }
+    }
+
+    // VLSM Berechnung
+    static void CalculateVLSM(IPAddress networkAddress, int initialPrefixLength, int[] hostsPerSubnet)
+    {
+        byte[] currentNetworkBytes = networkAddress.GetAddressBytes();
+        uint currentNetwork = BitConverter.ToUInt32(currentNetworkBytes.Reverse().ToArray(), 0);
+
+        for (int i = 0; i < hostsPerSubnet.Length; i++)
+        {
+            int requiredHosts = hostsPerSubnet[i];
+            int subnetPrefixLength = GetPrefixForHosts(requiredHosts);
+
+            uint subnetMask = 0xffffffff << (32 - subnetPrefixLength);
+            uint subnetSize = (uint)Math.Pow(2, 32 - subnetPrefixLength);
+
+            IPAddress networkSubnet = new IPAddress(BitConverter.GetBytes(currentNetwork).Reverse().ToArray());
+            IPAddress broadcastAddress = GetBroadcastAddress(networkSubnet, new IPAddress(BitConverter.GetBytes(subnetMask).Reverse().ToArray()));
+
+            string[] farben = { "GREEN", "RED", "YELLOW" }; 
+            Random random = new Random();
+            int zahl = random.Next(0, farben.Length); 
+            Console.BackgroundColor = (ConsoleColor)Enum.Parse(typeof(ConsoleColor), farben[zahl], true);
+
+
+
+
+
+            Console.WriteLine($"\nSubnetz {i + 1}:");
+            Console.WriteLine($"Benötigte Hosts: {requiredHosts}");
+            Console.WriteLine($"Präfix-Länge: /{subnetPrefixLength}");
+            Console.WriteLine($"Netzwerkadresse: {networkSubnet}/{subnetPrefixLength}");
+            Console.WriteLine($"Erster Host: {GetFirstHost(networkSubnet)}");
+            Console.WriteLine($"Letzter Host: {GetLastHost(broadcastAddress)}");
+            Console.WriteLine($"Broadcast-Adresse: {broadcastAddress}");
+            Console.ResetColor();
+
+
+
+            
+            currentNetwork += subnetSize;
+        }
+    }
+
+    static void DisplayAddressDetails(IPAddress ipAddress, IPAddress subnetMask, IPAddress networkAddress, IPAddress broadcastAddress, IPAddress firstHost, IPAddress lastHost, int prefixLength, int totalHosts, int numberOfSubnets)
+    {
+        
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("\nIP-Adresse (Dezimal): \t\t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ipAddress);
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("IP-Adresse (Binär): \t\t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(ipAddress));
+        Console.ResetColor();
+
+        
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("\nNetzwerkadresse (Dezimal): \t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"{networkAddress}/{prefixLength}");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("Netzwerkadresse (Binär): \t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(networkAddress));
+        Console.ResetColor();
+
+        
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("\nSubnetzmaske (Dezimal): \t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(subnetMask);
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("Subnetzmaske (Binär): \t\t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(subnetMask));
+        Console.ResetColor();
+
+        
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("\nBroadcast-Adresse (Dezimal): \t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"{broadcastAddress}/{prefixLength}");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("Broadcast-Adresse (Binär): \t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(broadcastAddress));
+        Console.ResetColor();
+
+
+
+        Console.BackgroundColor = ConsoleColor.Green;
+        Console.ForegroundColor = ConsoleColor.Black;
+        Console.Write("\n\n╔---------------------------------------╗");
+        Console.WriteLine("\n║ Broadcast: \t\t" + broadcastAddress + "\t║");
+        Console.WriteLine("║ Netzwerkadresse: \t" + networkAddress + "\t║");
+        Console.WriteLine("║ Erster Host: \t\t" + firstHost + "\t║");
+        Console.WriteLine("║ Letzter Host: \t" + lastHost + "\t║");
+        Console.WriteLine("║ Subnetmaske \t\t" + subnetMask + "\t║");
+        Console.Write("╚---------------------------------------╝");
+        Console.ResetColor();
+
+        
+        Console.WriteLine("\nErster Host: \t" + firstHost);
+        Console.WriteLine("Letzter Host: \t" + lastHost);
+
+        
+        Console.WriteLine($"\nAnzahl der Subnetze: \t{numberOfSubnets}");
+        Console.WriteLine($"Anzahl der Hosts pro Subnetz: \t{totalHosts - 2}"); // -2 wegen Netzwerk- und Broadcast-Adresse
+    }
+
+    static void DisplayEnding(IPAddress ipAddress, IPAddress subnetMask)
+    {
+        
+        Console.WriteLine("\nDas Ending*:\n");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("IP-Adresse (Binär): \t\t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(ipAddress));
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("Subnetzmaske (Binär): \t\t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(subnetMask));
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("-------------------------------------------------------------------");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("Ergebnis (Binär): \t\t");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(ConvertToBinary(GetNetworkAddress(ipAddress, subnetMask)));
+        Console.ResetColor();
+
+        Console.WriteLine("\n\n*Das Ending funktioniert wie folgt:");
+        Console.WriteLine("  1 und 1 ergibt 1");
+        Console.WriteLine("  1 und 0 ergibt 0");
+        Console.WriteLine("  0 und 0 ergibt 0");
+    }
+
+    static int GetPrefixForHosts(int requiredHosts)
+    {
+        int bitsNeeded = (int)Math.Ceiling(Math.Log(requiredHosts + 2, 2)); 
+        return 32 - bitsNeeded;
+    }
+
+    static int GetPrefixLength(string input)
+    {
+        if (input.StartsWith("/"))
+        {
+            return int.Parse(input.Substring(1));
+        }
+        else
+        {
+            IPAddress subnetMask = IPAddress.Parse(input);
+            byte[] maskBytes = subnetMask.GetAddressBytes();
+            int prefixLength = 0;
+
+            foreach (byte b in maskBytes)
+            {
+                prefixLength += Convert.ToString(b, 2).Count(c => c == '1');
+            }
+
+            return prefixLength;
+        }
+    }
+
+    static IPAddress ParseSubnetMask(string input)
+    {
+        if (input.StartsWith("/"))
+        {
+            int prefixLength = int.Parse(input.Substring(1));
+            uint mask = 0xffffffff << (32 - prefixLength);
+            return new IPAddress(BitConverter.GetBytes(mask).Reverse().ToArray());
+        }
+        else
+        {
+            return IPAddress.Parse(input);
+        }
+    }
+
+    static IPAddress GetNetworkAddress(IPAddress ipAddress, IPAddress subnetMask)
+    {
+        byte[] ipAddressBytes = ipAddress.GetAddressBytes();
+        byte[] subnetMaskBytes = subnetMask.GetAddressBytes();
+
+        byte[] networkAddressBytes = new byte[ipAddressBytes.Length];
+        for (int i = 0; i < ipAddressBytes.Length; i++)
+        {
+            networkAddressBytes[i] = (byte)(ipAddressBytes[i] & subnetMaskBytes[i]);
+        }
+
+        return new IPAddress(networkAddressBytes);
+    }
+
+    static IPAddress GetBroadcastAddress(IPAddress ipAddress, IPAddress subnetMask)
+    {
+        byte[] ipAddressBytes = ipAddress.GetAddressBytes();
+        byte[] subnetMaskBytes = subnetMask.GetAddressBytes();
+
+        byte[] broadcastAddressBytes = new byte[ipAddressBytes.Length];
+        for (int i = 0; i < ipAddressBytes.Length; i++)
+        {
+            broadcastAddressBytes[i] = (byte)(ipAddressBytes[i] | (byte)~subnetMaskBytes[i]);
+        }
+
+        return new IPAddress(broadcastAddressBytes);
+    }
+
+    static IPAddress GetFirstHost(IPAddress networkAddress)
+    {
+        byte[] networkAddressBytes = networkAddress.GetAddressBytes();
+        networkAddressBytes[networkAddressBytes.Length - 1] += 1; 
+        return new IPAddress(networkAddressBytes);
+    }
+
+    static IPAddress GetLastHost(IPAddress broadcastAddress)
+    {
+        byte[] broadcastAddressBytes = broadcastAddress.GetAddressBytes();
+        broadcastAddressBytes[broadcastAddressBytes.Length - 1] -= 1; 
+        return new IPAddress(broadcastAddressBytes);
+    }
+
+    static int GetTotalHosts(int prefixLength)
+    {
+        return (int)Math.Pow(2, 32 - prefixLength);
+    }
+
+    static int GetNumberOfSubnets(int prefixLength)
+    {
+        return (int)Math.Pow(2, prefixLength - 24); 
+    }
+
+    static string ConvertToBinary(IPAddress ipAddress)
+    {
+        byte[] bytes = ipAddress.GetAddressBytes();
+        string binaryString = string.Join(".", Array.ConvertAll(bytes, byteValue => Convert.ToString(byteValue, 2).PadLeft(8, '0')));
+        return binaryString;
+    }
+}
